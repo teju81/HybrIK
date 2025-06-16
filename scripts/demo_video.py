@@ -162,12 +162,14 @@ if not os.path.exists(os.path.join(opt.out_dir, 'res_2d_images')) and opt.save_i
     os.makedirs(os.path.join(opt.out_dir, 'res_2d_images'))
 
 _, info, _ = get_video_info(opt.video_name)
+
 video_basename = os.path.basename(opt.video_name).split('.')[0]
 
-savepath = f'./{opt.out_dir}/res_{video_basename}.mp4'
-savepath2d = f'./{opt.out_dir}/res_2d_{video_basename}.mp4'
+savepath = f'{opt.out_dir}/res_{video_basename}.mp4'
+savepath2d = f'{opt.out_dir}/res_2d_{video_basename}.mp4'
 info['savepath'] = savepath
 info['savepath2d'] = savepath2d
+
 
 write_stream = cv2.VideoWriter(
     *[info[k] for k in ['savepath', 'fourcc', 'fps', 'frameSize']])
@@ -176,18 +178,33 @@ write2d_stream = cv2.VideoWriter(
 if not write_stream.isOpened():
     print("Try to use other video encoders...")
     ext = info['savepath'].split('.')[-1]
-    fourcc, _ext = recognize_video_ext(ext)
-    info['fourcc'] = fourcc
-    info['savepath'] = info['savepath'][:-4] + _ext
-    info['savepath2d'] = info['savepath2d'][:-4] + _ext
-    write_stream = cv2.VideoWriter(
-        *[info[k] for k in ['savepath', 'fourcc', 'fps', 'frameSize']])
-    write2d_stream = cv2.VideoWriter(
-        *[info[k] for k in ['savepath2d', 'fourcc', 'fps', 'frameSize']])
+    #fourcc, _ext = recognize_video_ext(ext)
+
+
+    for codec,_ext in [('mp4v','mp4'), ('XVID','avi'), ('MJPG','avi'), ('AVC1','mp4')]:
+        print(*[info[k] for k in ['savepath', 'fourcc', 'fps', 'frameSize']])
+        print("Started...")
+        info['fourcc'] = cv2.VideoWriter_fourcc(*codec)
+        info['savepath'] = info['savepath'][:-4] + _ext
+        info['savepath2d'] = info['savepath2d'][:-4] + _ext
+        write_stream = cv2.VideoWriter(
+            *[info[k] for k in ['savepath', 'fourcc', 'fps', 'frameSize']])
+        write2d_stream = cv2.VideoWriter(
+            *[info[k] for k in ['savepath2d', 'fourcc', 'fps', 'frameSize']])
+
+        if write_stream.isOpened():
+            print(f"[INFO] Opened video writer with codec: {codec}")
+            break
+        else:
+            raise RuntimeError("Failed to open video writer with all fallback codecs")
+
 
 assert write_stream.isOpened(), 'Cannot open video for writing'
 assert write2d_stream.isOpened(), 'Cannot open video for writing'
 
+
+
+# Extract image frames from video
 os.system(f'ffmpeg -i {opt.video_name} {opt.out_dir}/raw_images/{video_basename}-%06d.png')
 
 
@@ -206,14 +223,14 @@ prev_box = None
 renderer = None
 smpl_faces = torch.from_numpy(hybrik_model.smpl.faces.astype(np.int32))
 
-print('### Run Model...')
+print('### Run Model on all extracted image frames...')
 idx = 0
 for img_path in tqdm(img_path_list):
     dirname = os.path.dirname(img_path)
     basename = os.path.basename(img_path)
 
     with torch.no_grad():
-        # Run Detection
+        # Run human Detection on image frame
         input_image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
         det_input = det_transform(input_image).to(opt.gpu)
         det_output = det_model([det_input])[0]
