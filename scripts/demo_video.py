@@ -319,6 +319,7 @@ for img_path in tqdm(img_path_list):
         transl_batch = transl
 
         # Render the mesh in pytorch 3d and use the image as a mask
+        # Vertices are defined with pelvis as origin - hence translation is applied before rendering (see render_mesh function)
 
         color_batch = render_mesh(
             vertices=verts_batch, faces=smpl_faces,
@@ -393,8 +394,16 @@ for img_path in tqdm(img_path_list):
             pred_cam_root = pose_output.cam_root.squeeze(dim=0).cpu().numpy()
             img_size = np.array((input_image.shape[0], input_image.shape[1]))
 
+            
+            #Inspect cam_root coordinates to see if there is consistency in the direction of motion atleast - coordinate system is not metric scale
             print(f'pred_cam_root: {pred_cam_root}')
             print(f'transl: {transl}')
+
+            # Inspect joint locations to check for coordinate system in which they are defined - origin seems to be pelvis (first index)
+            print(f'pred_xyz_jts_17: {pred_xyz_jts_17}')
+            print(f'pred_xyz_jts_29: {pred_xyz_jts_29}')
+            print(f'pred_xyz_jts_24_struct: {pred_xyz_jts_24_struct}')
+
 
             res_db['pred_xyz_17'].append(pred_xyz_jts_17)
             res_db['pred_uvd'].append(pred_uvd_jts)
