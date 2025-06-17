@@ -61,6 +61,10 @@ def recognize_video_ext(ext=''):
 
 parser = argparse.ArgumentParser(description='HybrIK Demo')
 
+parser.add_argument('--debug',
+                    help='enable display for debugging',
+                    default=0,
+                    type=int)
 parser.add_argument('--gpu',
                     help='gpu',
                     default=0,
@@ -84,7 +88,6 @@ parser.add_argument('--save-img', default=False, dest='save_img',
 
 
 opt = parser.parse_args()
-
 
 cfg_file = '/root/code/hybrik/configs/256x192_adam_lr1e-3-hrw48_cam_2x_w_pw3d_3dhp.yaml'
 CKPT = '/root/code/hybrik/pretrained_models/hybrik_hrnet48_w3dpw.pth'
@@ -234,7 +237,9 @@ for img_path in tqdm(img_path_list):
         # Run human Detection on image frame
         input_image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
 
-        #cv2.imshow('Input image frame', input_image)
+        if opt.debug:
+            pass
+            #cv2.imshow('Input image frame', input_image)
 
         det_input = det_transform(input_image).to(opt.gpu)
         img_bgr = torch_to_cv2(det_input)
@@ -280,7 +285,8 @@ for img_path in tqdm(img_path_list):
 
         pose_input_bgr = torch_to_cv2(pose_input)
 
-        cv2.imshow('Cropped image frame', pose_input_bgr)
+        if opt.debug:
+            cv2.imshow('Cropped image frame', pose_input_bgr)
 
         x1, y1, x2, y2 = map(int, bbox)
 
@@ -289,7 +295,8 @@ for img_path in tqdm(img_path_list):
 
         cv2.rectangle(img_bgr, top_left, bottom_right, color=(255, 0, 0), thickness=1)
 
-        cv2.imshow('Input image frame transformed', img_bgr)
+        if opt.debug:
+            cv2.imshow('Input image frame transformed', img_bgr)
 
         pose_input = pose_input.to(opt.gpu)[None, :, :, :]
         pose_output = hybrik_model(
@@ -344,7 +351,8 @@ for img_path in tqdm(img_path_list):
         image_vis = image_vis.astype(np.uint8)
         image_vis = cv2.cvtColor(image_vis, cv2.COLOR_RGB2BGR)
 
-        cv2.imshow('Alpha blended mesh render mask', image_vis)
+        if opt.debug:
+            cv2.imshow('Alpha blended mesh render mask', image_vis)
 
         if opt.save_img:
             idx += 1
@@ -362,9 +370,11 @@ for img_path in tqdm(img_path_list):
         bbox_img = cv2.cvtColor(bbox_img, cv2.COLOR_RGB2BGR)
         write2d_stream.write(bbox_img)
 
-        cv2.imshow('Vis 2d image', image_vis)
+        if opt.debug:
+            cv2.imshow('Vis 2d image', image_vis)
 
-        cv2.waitKey(1)
+        if opt.debug:
+            cv2.waitKey(1)
 
         if opt.save_img:
             res_path = os.path.join(
@@ -395,14 +405,14 @@ for img_path in tqdm(img_path_list):
             img_size = np.array((input_image.shape[0], input_image.shape[1]))
 
             
-            #Inspect cam_root coordinates to see if there is consistency in the direction of motion atleast - coordinate system is not metric scale
-            print(f'pred_cam_root: {pred_cam_root}')
-            print(f'transl: {transl}')
+            # #Inspect cam_root coordinates to see if there is consistency in the direction of motion atleast - coordinate system is not metric scale
+            # print(f'pred_cam_root: {pred_cam_root}')
+            # print(f'transl: {transl}')
 
-            # Inspect joint locations to check for coordinate system in which they are defined - origin seems to be pelvis (first index)
-            print(f'pred_xyz_jts_17: {pred_xyz_jts_17}')
-            print(f'pred_xyz_jts_29: {pred_xyz_jts_29}')
-            print(f'pred_xyz_jts_24_struct: {pred_xyz_jts_24_struct}')
+            # # Inspect joint locations to check for coordinate system in which they are defined - origin seems to be pelvis (first index)
+            # print(f'pred_xyz_jts_17: {pred_xyz_jts_17}')
+            # print(f'pred_xyz_jts_29: {pred_xyz_jts_29}')
+            # print(f'pred_xyz_jts_24_struct: {pred_xyz_jts_24_struct}')
 
 
             res_db['pred_xyz_17'].append(pred_xyz_jts_17)
@@ -424,8 +434,8 @@ for img_path in tqdm(img_path_list):
             res_db['width'].append(img_size[1])
             res_db['img_path'].append(img_path)
 
-
-cv2.destroyAllWindows()
+if opt.debug:
+    cv2.destroyAllWindows()
 
 
 if opt.save_pk:
