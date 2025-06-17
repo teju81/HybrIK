@@ -12,6 +12,7 @@ from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from tqdm import tqdm
 
 from hybrik.models import builder
+from hybrik.utils.transforms import torch_to_cv2
 from hybrik.utils.config import update_config
 from hybrik.utils.presets import SimpleTransform3DSMPLCam
 from hybrik.utils.render_pytorch3d import render_mesh
@@ -232,9 +233,15 @@ for img_path in tqdm(img_path_list):
     with torch.no_grad():
         # Run human Detection on image frame
         input_image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
-        det_input = det_transform(input_image).to(opt.gpu)
-        det_output = det_model([det_input])[0]
 
+        #cv2.imshow('Input image frame', input_image)
+
+        det_input = det_transform(input_image).to(opt.gpu)
+        img_bgr = torch_to_cv2(det_input)
+        det_output = det_model([det_input])[0]
+        #print(det_output)
+
+        # Find the best bbox - use prev_bbox to find best bbox in current frame based on iou
         if prev_box is None:
             tight_bbox = get_one_box(det_output)  # xyxy
             if tight_bbox is None:
@@ -244,23 +251,63 @@ for img_path in tqdm(img_path_list):
 
         prev_box = tight_bbox
 
+        # Draw all bounding boxes belonging to human class (coco dataset has label 1 assigned to human class)
+        # Lots of false alarms with fastercnn resnet object detector - need to fix this as there are multiple humans in image frame
+        for i in range(det_output['boxes'].shape[0]):
+            if det_output['labels'][i] == 1: # human class label in coco
+                bbox_i = det_output['boxes'][i]
+                x1, y1, x2, y2 = map(int, bbox_i)
+
+                top_left = (x1,y1)
+                bottom_right = (x2,y2)
+
+                cv2.rectangle(img_bgr, top_left, bottom_right, color=(0, 0, 255), thickness=2)
+
+        # Draw best bounding box (somehow this belongs to human class without explicitly filtering it)
+        x1, y1, x2, y2 = map(int, tight_bbox)
+
+        top_left = (x1,y1)
+        bottom_right = (x2,y2)
+
+        cv2.rectangle(img_bgr, top_left, bottom_right, color=(0, 255, 0), thickness=2)
+
+
+        # Crop the image around the bbox and transform to prepare for HybrIK detector 
         # Run HybrIK
         # bbox: [x1, y1, x2, y2]
         pose_input, bbox, img_center = transformation.test_transform(
             input_image, tight_bbox)
+
+        pose_input_bgr = torch_to_cv2(pose_input)
+
+        cv2.imshow('Cropped image frame', pose_input_bgr)
+
+        x1, y1, x2, y2 = map(int, bbox)
+
+        top_left = (x1,y1)
+        bottom_right = (x2,y2)
+
+        cv2.rectangle(img_bgr, top_left, bottom_right, color=(255, 0, 0), thickness=1)
+
+        cv2.imshow('Input image frame transformed', img_bgr)
+
         pose_input = pose_input.to(opt.gpu)[None, :, :, :]
         pose_output = hybrik_model(
             pose_input, flip_test=True,
             bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(),
             img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float()
         )
+
+        # print("Details of HybrIK model....")
+        # print(pose_output.keys())
+
         uv_29 = pose_output.pred_uvd_jts.reshape(29, 3)[:, :2]
         transl = pose_output.transl.detach()
 
         # Visualization
         image = input_image.copy()
         focal = 1000.0
-        bbox_xywh = xyxy2xywh(bbox)
+        bbox_xywh = xyxy2xywh(bbox) # convert to cx, cy, w, h format
         transl_camsys = transl.clone()
         transl_camsys = transl_camsys * 256 / bbox_xywh[2]
 
@@ -271,10 +318,16 @@ for img_path in tqdm(img_path_list):
         verts_batch = vertices
         transl_batch = transl
 
+        # Render the mesh in pytorch 3d and use the image as a mask
+
         color_batch = render_mesh(
             vertices=verts_batch, faces=smpl_faces,
             translation=transl_batch,
             focal_length=focal, height=image.shape[0], width=image.shape[1])
+
+
+
+        # Alpha blend the rendered mesh with the input image
 
         valid_mask_batch = (color_batch[:, :, :, [-1]] > 0)
         image_vis_batch = color_batch[:, :, :, :3] * valid_mask_batch
@@ -290,6 +343,8 @@ for img_path in tqdm(img_path_list):
         image_vis = image_vis.astype(np.uint8)
         image_vis = cv2.cvtColor(image_vis, cv2.COLOR_RGB2BGR)
 
+        cv2.imshow('Alpha blended mesh render mask', image_vis)
+
         if opt.save_img:
             idx += 1
             res_path = os.path.join(opt.out_dir, 'res_images', f'image-{idx:06d}.jpg')
@@ -297,6 +352,7 @@ for img_path in tqdm(img_path_list):
         write_stream.write(image_vis)
 
         # vis 2d
+        # ANnotate the bbox and joint keypoints on the image
         pts = uv_29 * bbox_xywh[2]
         pts[:, 0] = pts[:, 0] + bbox_xywh[0]
         pts[:, 1] = pts[:, 1] + bbox_xywh[1]
@@ -304,6 +360,10 @@ for img_path in tqdm(img_path_list):
         bbox_img = vis_2d(image, tight_bbox, pts)
         bbox_img = cv2.cvtColor(bbox_img, cv2.COLOR_RGB2BGR)
         write2d_stream.write(bbox_img)
+
+        cv2.imshow('Vis 2d image', image_vis)
+
+        cv2.waitKey(1)
 
         if opt.save_img:
             res_path = os.path.join(
@@ -333,6 +393,9 @@ for img_path in tqdm(img_path_list):
             pred_cam_root = pose_output.cam_root.squeeze(dim=0).cpu().numpy()
             img_size = np.array((input_image.shape[0], input_image.shape[1]))
 
+            print(f'pred_cam_root: {pred_cam_root}')
+            print(f'transl: {transl}')
+
             res_db['pred_xyz_17'].append(pred_xyz_jts_17)
             res_db['pred_uvd'].append(pred_uvd_jts)
             res_db['pred_xyz_29'].append(pred_xyz_jts_29)
@@ -351,6 +414,9 @@ for img_path in tqdm(img_path_list):
             res_db['height'].append(img_size[0])
             res_db['width'].append(img_size[1])
             res_db['img_path'].append(img_path)
+
+
+cv2.destroyAllWindows()
 
 
 if opt.save_pk:
