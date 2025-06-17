@@ -112,6 +112,26 @@ def torch_to_im(img):
     return img
 
 
+
+def torch_to_cv2(img):
+    """Transform torch tensor to cv2 image.
+
+    Parameters
+    ----------
+    img: torch.Tensor
+        A tensor with shape: `(3, H, W)`.
+
+    Returns
+    CV2 image in BGR format
+
+    """
+    img_np = torch_to_im(img)
+
+    # Convert RGB to BGR for OpenCV
+    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+    return img_bgr
+
 def load_image(img_path):
     # H x W x C => C x H x W
     return im_to_torch(cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB))
